@@ -4,9 +4,8 @@ using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
-using UnityEngine.SocialPlatforms.Impl;
-using System;
-using UnityEditor.U2D.Animation;
+
+
 public class GridSystem : MonoBehaviour
 {
     [Header("Grid Configuration")]
@@ -19,8 +18,8 @@ public class GridSystem : MonoBehaviour
     public GameObject[] characterPrefabs;
 
     [Header("UI Elements")]
-    public Text timerText;
-    public Text scoreText;
+    public TextMeshPro timerText;
+    public TextMeshPro scoreText;
 
     [Header("Game Settings")]
     public float gameDuration = 180f;
@@ -39,7 +38,8 @@ public class GridSystem : MonoBehaviour
     private Vector2Int firstSelectedPosition;
     private bool isFirstCharacterSelected = false;
     [SerializeField] private LineRenderer lineRenderer;
-
+    public GameObject matchEffectPrefab;  // Hiệu ứng khi match thành công
+    public GameObject missMatchEffectPrefab;  // Hiệu ứng khi không match
     void Start()
     {
         InitializeGrid();
@@ -143,7 +143,6 @@ public class GridSystem : MonoBehaviour
 
     void ProcessCharacterSelection(Vector2Int selectedPosition, GameObject selectedCharacter)
     {
-       
         if (!isFirstCharacterSelected)
         {
             firstSelectedCharacter = selectedCharacter;
@@ -154,18 +153,30 @@ public class GridSystem : MonoBehaviour
         }
         else
         {
-            HighlightCharacter(firstSelectedCharacter, true);
-           
+            HighlightCharacter(selectedCharacter, true);
            
             if (CanMatchCharacters(firstSelectedPosition, selectedPosition))
             {
-                RemoveMatchedCharacters(firstSelectedPosition, selectedPosition);
+                // Vẽ đường đi giữa hai điểm
+                DrawConnectionPath(firstSelectedPosition, selectedPosition);
+                 Vector2 startPosition = gridPositions[firstSelectedPosition.y, firstSelectedPosition.x];
+                Instantiate(matchEffectPrefab, startPosition, Quaternion.identity);
+
+                // Spawn hiệu ứng match ở điểm kết thúc
+                Vector2 endPosition = gridPositions[selectedPosition.y,selectedPosition.x];
+                Instantiate(matchEffectPrefab, endPosition, Quaternion.identity);
+                StartCoroutine(DestroyMatchedObjectsAfterDelay(
+                    firstSelectedPosition, 
+                    selectedPosition
+                ));
                 UpdateScore();
             }
             else
             {
                 HighlightCharacter(firstSelectedCharacter, false);
-  
+                Vector2 endPosition = gridPositions[selectedPosition.y, selectedPosition.x];
+                Instantiate(missMatchEffectPrefab, endPosition, Quaternion.identity);
+                lineRenderer.positionCount = 0;
             }
 
             firstSelectedCharacter = null;
@@ -191,20 +202,32 @@ public class GridSystem : MonoBehaviour
             return false;
 
         // So sánh loại (enum)
-        if (data1.TypeID != data2.TypeID)
+        if (data1.TypeID != data2.TypeID){
+            HighlightCharacter(obj1, false);
+            HighlightCharacter(obj2,false);
             return false;
-
-            
-
+        }
         // Kiểm tra đường kết nối
         return FindConnectionPath(pos1, pos2);
     }
 
     // Loại bỏ các character đã match
-    void RemoveMatchedCharacters(Vector2Int pos1, Vector2Int pos2)
+    IEnumerator DestroyMatchedObjectsAfterDelay(Vector2Int pos1, Vector2Int pos2)
     {
-        Debug.Log("Destroy");
-        // Phá huỷ game object
+        // Đợi 0.3 giây
+        yield return new WaitForSeconds(0.3f);
+
+        // Đợi 0.3 giây
+        yield return new WaitForSeconds(0.3f);
+
+    // Xóa sạch LineRenderer
+        lineRenderer.positionCount = 0;
+
+
+        // Spawn hiệu ứng match ở điểm bắt đầu
+       
+
+        // Phá hủy game object
         Destroy(gridItems[pos1.y, pos1.x]);
         Destroy(gridItems[pos2.y, pos2.x]);
 
@@ -215,6 +238,9 @@ public class GridSystem : MonoBehaviour
         // Kiểm tra kết thúc game nếu không còn character
         CheckGameCompletion();
     }
+   
+    
+    
 
     // Highlight character khi được chọn
     void HighlightCharacter(GameObject character, bool isHighlighted)
@@ -326,14 +352,14 @@ public class GridSystem : MonoBehaviour
         // Tạo các cặp character
         for (int i = 0; i < totalPairs; i++)
         {
-            GameObject selectedCharacter = characterPrefabs[UnityEngine.Random.Range(0, characterPrefabs.Length)];
+            GameObject selectedCharacter = characterPrefabs[Random.Range(0, characterPrefabs.Length)];
 
             availableItems.Add(selectedCharacter);
             availableItems.Add(selectedCharacter);
         }
 
         // Trộn ngẫu nhiên
-        availableItems = availableItems.OrderBy(x => UnityEngine.Random.value).ToList();
+        availableItems = availableItems.OrderBy(x => Random.value).ToList();
 
         // Điền vào grid
         for (int row = 0; row < rows; row++)
@@ -384,13 +410,13 @@ public class GridSystem : MonoBehaviour
 
         for (int i = 0; i < totalPairs; i++)
         {
-            GameObject selectedCharacter = characterPrefabs[UnityEngine.Random.Range(0, characterPrefabs.Length)];
+            GameObject selectedCharacter = characterPrefabs[Random.Range(0, characterPrefabs.Length)];
 
             availableItems.Add(selectedCharacter);
             availableItems.Add(selectedCharacter);
         }
 
-        availableItems = availableItems.OrderBy(x => UnityEngine.Random.value).ToList();
+        availableItems = availableItems.OrderBy(x => Random.value).ToList();
 
         for (int row = 0; row < rows; row++)
         {
@@ -416,21 +442,18 @@ public class GridSystem : MonoBehaviour
         // Kiểm tra điều kiện ban đầu
         if (start == end)
         {
-            Debug.Log("Start và End trùng nhau");
             return false;
         }
 
         // Kiểm tra nếu `start` hoặc `end` nằm ngoài lưới
         if (!IsWithinBounds(start) || !IsWithinBounds(end))
         {
-            Debug.Log("Start hoặc End nằm ngoài lưới");
             return false;
         }
 
         // Kiểm tra nếu `end` không phải ô trống
         if (gridItems[end.y, end.x] != null && gridItems[start.y, start.x].GetComponent<kitchenware>().TypeID != gridItems[end.y, end.x].GetComponent<kitchenware>().TypeID)
         {
-            Debug.Log("Điểm kết thúc không hợp lệ");
             Debug.Log(end.y +" "+ end.x   +" " +gridItems[end.y, end.x].name);
             return false;
         }
@@ -453,15 +476,11 @@ public class GridSystem : MonoBehaviour
         while (paths.Count > 0)
         {
             // Lấy đường đi hiện tại từ hàng đợi
-            Debug.Log($"{paths.Count}");
             List<Vector2Int> currentPath = paths.Dequeue();
             Vector2Int currentPos = currentPath[currentPath.Count - 1];
-            Debug.Log($"Đang xử lý tại {currentPos}, hàng đợi còn {paths.Count}");
-
             // Kiểm tra nếu đã đến điểm đích
             if (currentPos == end)
             {
-                Debug.Log("Tìm thấy đường đi!");
                 return true;
             }
 
@@ -480,78 +499,16 @@ public class GridSystem : MonoBehaviour
                     // Thêm vào hàng đợi và đánh dấu đã duyệt
                     paths.Enqueue(newPath);
                     visited.Add(nextPos);
-
-                    Debug.Log($"Thêm {nextPos} vào hàng đợi");
                 }
             }
         }
 
-        // Không tìm thấy đường đi
-        Debug.Log("Không tìm thấy đường đi");
+       
         return false;
     }
-    public List<Vector2Int> FindShortestPath(Vector2Int start, Vector2Int end)
-    {
-        Queue<List<Vector2Int>> paths = new Queue<List<Vector2Int>>();
-        HashSet<Vector2Int> visited = new HashSet<Vector2Int>();
+   
 
-        paths.Enqueue(new List<Vector2Int> { start });
-        Vector2Int[] directions = new Vector2Int[]
-       {
-        Vector2Int.up, Vector2Int.down,
-        Vector2Int.left, Vector2Int.right
-       };
-        while (paths.Count > 0)
-        {
-            List<Vector2Int> currentPath = paths.Dequeue();
-            Vector2Int currentPos = currentPath[currentPath.Count - 1];
-
-            if (currentPos == end)
-            {
-                return currentPath; // Trả về đường đi tìm được
-            }
-
-            foreach (Vector2Int dir in directions)
-            {
-                Vector2Int nextPos = currentPos + dir;
-
-                if (IsValidMove(nextPos, currentPath, end) && !visited.Contains(nextPos))
-                {
-                    visited.Add(nextPos);
-                    List<Vector2Int> newPath = new List<Vector2Int>(currentPath);
-                    newPath.Add(nextPos);
-                    paths.Enqueue(newPath);
-                }
-            }
-        }
-
-        return null; // Không tìm thấy đường đi
-    }
-    public void DrawPath(List<Vector2Int> path)
-    {
-        if (path == null || path.Count == 0)
-        {
-            Debug.Log("Không có đường đi hợp lệ để vẽ.");
-            return;
-        }
-
-        // Chuyển tọa độ grid sang tọa độ thế giới
-        Vector3[] worldPositions = new Vector3[path.Count];
-        for (int i = 0; i < path.Count; i++)
-        {
-            worldPositions[i] = GridToWorldPosition(path[i]);
-        }
-
-        // Cài đặt LineRenderer
-        lineRenderer.positionCount = worldPositions.Length;
-        lineRenderer.SetPositions(worldPositions);
-    }
-
-    private Vector3 GridToWorldPosition(Vector2Int gridPos)
-    {
-        // Hàm chuyển tọa độ grid sang tọa độ thế giới
-        return new Vector3(gridPos.x, gridPos.y, 0);
-    }
+   
     // Hàm kiểm tra tính hợp lệ của nước đi
     private bool IsValidMove(Vector2Int pos, List<Vector2Int> currentPath, Vector2Int end)
     {
@@ -559,27 +516,108 @@ public class GridSystem : MonoBehaviour
         // Kiểm tra nếu tọa độ nằm ngoài biên grid
         if (pos.x < 0 || pos.x >= gridItems.GetLength(1) || pos.y < 0 || pos.y >= gridItems.GetLength(0))
         {
-            Debug.Log($"Tọa độ {pos} nằm ngoài phạm vi grid.");
             return false;
         }
         // Kiểm tra nếu đây là điểm kết thúc (end)
         if (pos == end)
         {
-            // Nếu là điểm kết thúc thì không cần kiểm tra là null
-            Debug.Log("?");
             return true;
         }
 
         // Kiểm tra ô trống hoặc điểm bắt đầu
 
         bool isValid = gridItems[pos.y, pos.x] == null || pos == currentPath[0];
-            Debug.Log($"Tọa độ {pos}, hợp lệ: {isValid}");
+           
         return isValid;    
-     
-       
-
-
     }
+
+
+
+    void DrawConnectionPath(Vector2Int start, Vector2Int end)
+    {
+        // Tìm đường đi giữa hai điểm
+        List<Vector2Int> path = FindShortestPath(start, end);
+
+        if (path != null && path.Count > 0)
+        {
+        // Cấu hình LineRenderer
+            lineRenderer.positionCount = path.Count;
+            lineRenderer.startWidth = 0.1f;
+            lineRenderer.endWidth = 0.1f;
+            lineRenderer.startColor = Color.green;
+            lineRenderer.endColor = Color.green;
+
+            // Chuyển đổi các điểm grid thành vị trí thế giới
+            Vector3[] pathPositions = new Vector3[path.Count];
+            for (int i = 0; i < path.Count; i++)
+            {
+                pathPositions[i] = new Vector3(
+                    gridPositions[path[i].y, path[i].x].x, 
+                    gridPositions[path[i].y, path[i].x].y, 
+                    0
+                );
+            }
+
+            // Gán vị trí cho LineRenderer
+            lineRenderer.SetPositions(pathPositions);
+        }
+        else
+        {
+            // Nếu không tìm thấy đường đi, reset LineRenderer
+            lineRenderer.positionCount = 0;
+        }
+    }
+
+    // Phương thức tìm đường đi ngắn nhất (sửa đổi từ FindConnectionPath)
+    List<Vector2Int> FindShortestPath(Vector2Int start, Vector2Int end)
+    {
+        // Các hướng di chuyển
+        Vector2Int[] directions = new Vector2Int[]
+        {
+            Vector2Int.up, Vector2Int.down,
+            Vector2Int.left, Vector2Int.right
+        };
+
+        // Thuật toán BFS để tìm đường đi ngắn nhất
+        Queue<List<Vector2Int>> paths = new Queue<List<Vector2Int>>();
+        HashSet<Vector2Int> visited = new HashSet<Vector2Int>();
+
+        // Thêm đường đi ban đầu
+        paths.Enqueue(new List<Vector2Int> { start });
+        visited.Add(start);
+
+        while (paths.Count > 0)
+        {
+            List<Vector2Int> currentPath = paths.Dequeue();
+            Vector2Int currentPos = currentPath[currentPath.Count - 1];
+
+            // Kiểm tra nếu đã đến điểm đích
+            if (currentPos == end)
+            {
+                return currentPath;
+            }
+
+            // Duyệt các hướng di chuyển
+            foreach (Vector2Int dir in directions)
+            {
+                Vector2Int nextPos = currentPos + dir;
+
+                // Kiểm tra điều kiện di chuyển
+                if (IsValidMove(nextPos, currentPath, end) && !visited.Contains(nextPos))
+                {
+                    List<Vector2Int> newPath = new List<Vector2Int>(currentPath);
+                    newPath.Add(nextPos);
+
+                    paths.Enqueue(newPath);
+                    visited.Add(nextPos);
+                }
+            }
+        }
+
+        // Không tìm thấy đường đi
+        return null;
+    }
+
 
     // Kiểm tra tọa độ có nằm trong lưới không
     private bool IsWithinBounds(Vector2Int pos)
@@ -594,8 +632,8 @@ public class GridSystem : MonoBehaviour
 
         for (int i = 0; i < obstacleCount; i++)
         {
-            int randomRow = UnityEngine.Random.Range(0, rows);
-            int randomCol = UnityEngine.Random.Range(0, columns);
+            int randomRow = Random.Range(0, rows);
+            int randomCol = Random.Range(0, columns);
 
             // Đánh dấu là chướng ngại
             gridItems[randomRow, randomCol] = null;
