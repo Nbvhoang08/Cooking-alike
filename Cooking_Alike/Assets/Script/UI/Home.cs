@@ -13,8 +13,8 @@ public class Home : UICanvas
     public void Start()
     {
         btn[0].onClick.AddListener(() => LoadLevelScene("hard", 0.3f));
-        btn[0].onClick.AddListener(() => LoadLevelScene("normal", 0.3f));
-        btn[0].onClick.AddListener(() => LoadLevelScene("easy", 0.3f));
+        btn[1].onClick.AddListener(() => LoadLevelScene("normal", 0.3f));
+        btn[2].onClick.AddListener(() => LoadLevelScene("easy", 0.3f));
     }
     /// <summary>
     /// Load scene với tên tương ứng sau một khoảng thời gian delay.
@@ -24,6 +24,7 @@ public class Home : UICanvas
     void LoadLevelScene(string sceneName, float delay)
     {
         StartCoroutine(LoadSceneAfterDelay(sceneName, delay));
+        SoundManager.Instance.PlayClickSound();
     }
 
     /// <summary>
@@ -40,7 +41,8 @@ public class Home : UICanvas
 
         // Bắt đầu load scene
         SceneManager.LoadScene(sceneName);
-
+        UIManager.Instance.CloseUI<Home>(0.3f);
+        UIManager.Instance.OpenUI<InGame>();
         Debug.Log($"Scene {sceneName} loaded.");
     }
 }

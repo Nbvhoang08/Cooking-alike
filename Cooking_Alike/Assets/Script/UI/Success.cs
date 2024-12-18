@@ -63,6 +63,8 @@ public class Success : UICanvas
         else
         {
             SceneManager.LoadScene("Home");
+            UIManager.Instance.OpenUI<Home>();
+            UIManager.Instance.CloseUIDirectly<Success>();
 
         }
     }

@@ -2,9 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
-using UnityEngine.UI;
 using TMPro;
-
+using UnityEngine.EventSystems;
 
 public class GridSystem : MonoBehaviour
 {
@@ -24,13 +23,22 @@ public class GridSystem : MonoBehaviour
 
     [Header("Game Settings")]
     public float gameDuration = 180f;
-    private string currentSceneKey;
+    [SerializeField]private string currentSceneKey;
     public int difficulty;
     public bool hasObstacle;
     // Quản lý trạng thái game
     private float currentTime;
     private bool isGameRunning = false;
-    private int score = 0;
+     private int _score = 0; // Sử dụng tiền tố "_" theo convention của bạn.
+
+    public int getScore() {
+        return _score;
+    }
+
+    public void setScore(int score) {
+        // Giới hạn score không nhỏ hơn 0
+        this._score = Mathf.Max(0, score);
+    }
 
     // Ma trận grid
     [SerializeField] private GameObject[,] gridItems;
@@ -56,10 +64,10 @@ public class GridSystem : MonoBehaviour
         }
         
         StartGame();
-        score = 0;
+        setScore(0);
         if (scoreText != null)
         {
-            scoreText.text = score.ToString();
+            scoreText.text = getScore().ToString();
         }
         if (highScoreText != null)
         {
@@ -104,6 +112,7 @@ public class GridSystem : MonoBehaviour
         if (currentTime <= 0)
         {
             EndGame(false);
+            timerText.text = "00:00";
         }
     }
 
@@ -121,20 +130,28 @@ public class GridSystem : MonoBehaviour
     }
     public int LoadHighScore()
     {
+        Debug.Log("");
         int highScore = PlayerPrefs.GetInt(currentSceneKey, 0);
         Debug.Log($"High score for {currentSceneKey}: {highScore}");
         return highScore;
     }
     void HandleCharacterSelection()
+{
+    // Kiểm tra nếu click chuột trái
+    if (Input.GetMouseButtonDown(0))
     {
-        if (Input.GetMouseButtonDown(0))
+        // Kiểm tra nếu chuột không đang bấm vào UI
+        if (!EventSystem.current.IsPointerOverGameObject())
         {
             Vector2Int selectedPosition = GetGridPositionFromMouseClick();
 
+            // Kiểm tra nếu vị trí trong grid hợp lệ
             if (IsValidGridPosition(selectedPosition))
             {
+                SoundManager.Instance.PlayVFXSound(1);
                 GameObject selectedCharacter = gridItems[selectedPosition.y, selectedPosition.x];
 
+                // Xử lý chọn nhân vật nếu có object tại vị trí đó
                 if (selectedCharacter != null)
                 {
                     ProcessCharacterSelection(selectedPosition, selectedCharacter);
@@ -142,6 +159,7 @@ public class GridSystem : MonoBehaviour
             }
         }
     }
+}
 
     // Chuyển đổi toạ độ chuột sang vị trí grid
     Vector2Int GetGridPositionFromMouseClick()
@@ -176,7 +194,6 @@ public class GridSystem : MonoBehaviour
                 }
             }
         }
-
         return nearestCell;
     }
 
@@ -212,6 +229,7 @@ public class GridSystem : MonoBehaviour
                 Instantiate(missMatchEffectPrefab, endPosition, Quaternion.identity);
                 lineRenderer.positionCount = 0;
                 UpdateScore(false);
+                SoundManager.Instance.PlayVFXSound(0);
             }
 
             firstSelectedCharacter = null;
@@ -262,7 +280,7 @@ public class GridSystem : MonoBehaviour
         // Hiệu ứng thu nhỏ dần
         yield return StartCoroutine(ShrinkAndDestroy(obj1));
         yield return StartCoroutine(ShrinkAndDestroy(obj2));
-
+        firstSelectedCharacter = null;
         // Đánh dấu ô trống trong grid
         gridItems[pos1.y, pos1.x] = null;
         gridItems[pos2.y, pos2.x] = null;
@@ -298,16 +316,19 @@ public class GridSystem : MonoBehaviour
         obj.transform.localScale = Vector3.zero;
         Vector2 startPosition = new Vector2(obj.transform.position.x, obj.transform.position.y);
         Instantiate(matchEffectPrefab, startPosition, Quaternion.identity);
+        SoundManager.Instance.PlayVFXSound(3); 
         UpdateScore(true);
         // Phá hủy object
         Destroy(obj);
     }
 
 
+
     // Highlight character khi được chọn
     void HighlightCharacter(GameObject character, bool isHighlighted , int amount)
     {
         // Thay đổi màu sắc hoặc scale để highlight
+        if(character == null) return;
         if (isHighlighted)
         {
             character.transform.localScale = Vector3.one * 1.2f;
@@ -328,7 +349,7 @@ public class GridSystem : MonoBehaviour
         isGameRunning = true;
 
         // Tạo map
-        GenerateRandomMap(1);
+        GenerateRandomMap();
     }
     // Cập nhật điểm số
   
@@ -381,16 +402,16 @@ public class GridSystem : MonoBehaviour
     {
         if (increase)
         {
-            score += 50;
+            _score += 50;
         }
         else
         {
-            score -= 50;
+            _score -= 50;
         }
 
         if (scoreText != null)
         {
-            scoreText.text = score.ToString();
+            scoreText.text = getScore().ToString();
         }
     }
 
@@ -410,8 +431,26 @@ public class GridSystem : MonoBehaviour
         {
             Debug.Log("Hết giờ!");
             // Xử lý khi thua game
+            SpawnEffects(10,missMatchEffectPrefab);
+            SoundManager.Instance.PlayVFXSound(5);
+            StartCoroutine(GameOver());
         }
     }
+
+    private IEnumerator Haswon()
+    {
+        yield return new WaitForSeconds(2);
+        UIManager.Instance.OpenUI<Success>();
+        Time.timeScale = 0;
+    }
+
+    private IEnumerator GameOver()
+    {
+        yield return new WaitForSeconds(2);
+        UIManager.Instance.OpenUI<Lose>();
+        Time.timeScale = 0;
+    }
+
     private IEnumerator CalculateFinalScoreAndCelebrate(float timeRemaining)
     {
         // Tính hệ số nhân điểm dựa trên thời gian còn lại
@@ -426,8 +465,8 @@ public class GridSystem : MonoBehaviour
         }
 
         // Tính toán số điểm mục tiêu
-        int finalScore = Mathf.RoundToInt(score * multiplier);
-        int startScore = score;
+        int finalScore = Mathf.RoundToInt(_score * multiplier);
+        int startScore = _score;
 
         // Hiển thị số điểm tăng dần
         float duration = 1.5f; // Thời gian tăng dần điểm
@@ -435,27 +474,29 @@ public class GridSystem : MonoBehaviour
         while (elapsed < duration)
         {
             elapsed += Time.deltaTime;
-            score = Mathf.RoundToInt(Mathf.Lerp(startScore, finalScore, elapsed / duration));
+            _score = Mathf.RoundToInt(Mathf.Lerp(startScore, finalScore, elapsed / duration));
             if (scoreText != null)
             {
-                scoreText.text = score.ToString();
+                scoreText.text = getScore().ToString();
             }
             yield return null; // Chờ frame tiếp theo
         }
 
         // Đảm bảo hiển thị chính xác điểm cuối cùng
-        score = finalScore;
+        _score = finalScore;
         if (scoreText != null)
         {
-            scoreText.text = score.ToString();
+            scoreText.text = getScore().ToString();
         }
-        SaveHighScore(score);
+        SaveHighScore(_score);
         // Gọi hàm spawn hiệu ứng ăn mừng
-        SpawnCelebrationEffects(10);
+         SoundManager.Instance.PlayVFXSound(4);
+        SpawnEffects(10, celebrationEffectPrefab);
+        StartCoroutine(Haswon());
     }
 
 
-    private void SpawnCelebrationEffects(int effectCount)
+    private void SpawnEffects(int effectCount ,GameObject EffectPrefab)
     {
         for (int i = 0; i < effectCount; i++)
         {
@@ -469,58 +510,106 @@ public class GridSystem : MonoBehaviour
             Vector3 worldPosition = Camera.main.ScreenToWorldPoint(new Vector3(randomPosition.x, randomPosition.y, 10f));
 
             // Instantiate hiệu ứng (thay `celebrationEffectPrefab` bằng prefab hiệu ứng của bạn)
-            GameObject effect = Instantiate(celebrationEffectPrefab, worldPosition, Quaternion.identity);
-
-            // Xóa hiệu ứng sau 2 giây để tránh tràn bộ nhớ
-           /* Destroy(effect, 2f);*/
+            GameObject effect = Instantiate(EffectPrefab, worldPosition, Quaternion.identity);
         }
     }
     // Thuật toán tạo map với các hình dạng grid linh hoạt
 
     // Sinh map với hỗ trợ offset
-    public void GenerateRandomMap(int difficulty)
+   public void GenerateRandomMap()
+{
+    // Xoá các item cũ nếu có
+    ClearExistingGrid();
+
+    // Tạo danh sách các cặp item
+    List<GameObject> availableItems = new List<GameObject>();
+    int totalPairs = (rows * columns) / 2;
+
+    for (int i = 0; i < totalPairs; i++)
     {
-        // Xoá các item cũ nếu có
+        GameObject selectedCharacter = characterPrefabs[Random.Range(0, characterPrefabs.Length)];
+        availableItems.Add(selectedCharacter); // Item đầu tiên trong cặp
+        availableItems.Add(selectedCharacter); // Item thứ hai trong cặp
+    }
+
+    // Shuffle ngẫu nhiên danh sách các item
+    availableItems = availableItems.OrderBy(x => Random.value).ToList();
+
+    // Đặt các item vào grid
+    bool mapIsValid = false;
+    while (!mapIsValid)
+    {
+        // Reset grid trước khi spawn
         ClearExistingGrid();
+        
+        // Lấy danh sách vị trí trống trong lưới
+        List<Vector2Int> emptyPositions = GetAllGridPositions();
 
-        List<GameObject> availableItems = new List<GameObject>();
-        int totalPairs = (rows * columns) / 2;
+        // Shuffle vị trí trống để tạo ngẫu nhiên
+        emptyPositions = emptyPositions.OrderBy(x => Random.value).ToList();
 
-        // Tạo các cặp character
-        for (int i = 0; i < totalPairs; i++)
+        // Đặt các item ngẫu nhiên vào grid
+        for (int i = 0; i < availableItems.Count; i++)
         {
-            GameObject selectedCharacter = characterPrefabs[Random.Range(0, characterPrefabs.Length)];
+            Vector2Int position = emptyPositions[i];
+            GameObject itemToPlace = availableItems[i];
+            Vector2 spawnPosition = gridPositions[position.y, position.x];
 
-            availableItems.Add(selectedCharacter);
-            availableItems.Add(selectedCharacter);
+            gridItems[position.y, position.x] = Instantiate(
+                itemToPlace,
+                spawnPosition,
+                Quaternion.identity
+            );
         }
 
-        // Trộn ngẫu nhiên
-        availableItems = availableItems.OrderBy(x => Random.value).ToList();
+        // Kiểm tra xem map có ít nhất một cặp có đường đi hợp lệ hay không
+        mapIsValid = CheckMapValidity();
+    }
+}
 
-        // Điền vào grid
-        for (int row = 0; row < rows; row++)
+// Lấy tất cả các vị trí trong lưới (trả về danh sách các Vector2Int)
+private List<Vector2Int> GetAllGridPositions()
+{
+    List<Vector2Int> positions = new List<Vector2Int>();
+    for (int row = 0; row < rows; row++)
+    {
+        for (int col = 0; col < columns; col++)
         {
-            for (int col = 0; col < columns; col++)
+            positions.Add(new Vector2Int(col, row));
+        }
+    }
+    return positions;
+}
+
+// Phương thức kiểm tra tính hợp lệ của map
+private bool CheckMapValidity()
+{
+    // Duyệt qua tất cả các cặp trong grid
+    for (int row1 = 0; row1 < rows; row1++)
+    {
+        for (int col1 = 0; col1 < columns; col1++)
+        {
+            if (gridItems[row1, col1] == null) continue;
+
+            for (int row2 = 0; row2 < rows; row2++)
             {
-                if (gridItems[row, col] == null && availableItems.Count > 0)
+                for (int col2 = 0; col2 < columns; col2++)
                 {
-                    GameObject itemToPlace = availableItems[0];
+                    if (gridItems[row2, col2] == null || (row1 == row2 && col1 == col2)) continue;
 
-                    // Sử dụng vị trí từ gridPositions
-                    Vector2 spawnPosition = gridPositions[row, col];
-
-                    gridItems[row, col] = Instantiate(
-                        itemToPlace,
-                        spawnPosition,
-                        Quaternion.identity
-                    );
-
-                    availableItems.RemoveAt(0);
+                    // Kiểm tra nếu hai item có thể kết nối được
+                    if (gridItems[row1, col1].GetComponent<kitchenware>().TypeID ==
+                        gridItems[row2, col2].GetComponent<kitchenware>().TypeID &&
+                        FindConnectionPath(new Vector2Int(col1, row1), new Vector2Int(col2, row2)))
+                    {
+                        return true; // Có ít nhất một đường kết nối hợp lệ
+                    }
                 }
             }
         }
     }
+    return false; // Không tìm thấy đường kết nối hợp lệ nào
+}
 
     // Xoá các item cũ trên grid
     void ClearExistingGrid()
@@ -538,42 +627,8 @@ public class GridSystem : MonoBehaviour
         }
     }
 
-    // Thuật toán đảm bảo số thẻ luôn chẵn và có đủ cặp
-    private void FillGridWithMatchingPairs()
-    {
-        List<GameObject> availableItems = new List<GameObject>();
-
-        int totalPairs = (rows * columns) / 2;
-
-        for (int i = 0; i < totalPairs; i++)
-        {
-            GameObject selectedCharacter = characterPrefabs[Random.Range(0, characterPrefabs.Length)];
-
-            availableItems.Add(selectedCharacter);
-            availableItems.Add(selectedCharacter);
-        }
-
-        availableItems = availableItems.OrderBy(x => Random.value).ToList();
-
-        for (int row = 0; row < rows; row++)
-        {
-            for (int col = 0; col < columns; col++)
-            {
-                if (gridItems[row, col] == null && availableItems.Count > 0)
-                {
-                    GameObject itemToPlace = availableItems[0];
-                    gridItems[row, col] = Instantiate(
-                        itemToPlace,
-                        new Vector2(col, row),
-                        Quaternion.identity
-                    );
-                    availableItems.RemoveAt(0);
-                }
-            }
-        }
-    }
-
-    // Thuật toán tìm đường đi không giới hạn turn
+   
+    //Thuật toán tìm đường đi không giới hạn turn
     public bool FindConnectionPath(Vector2Int start, Vector2Int end)
     {
         // Kiểm tra điều kiện ban đầu
@@ -643,7 +698,7 @@ public class GridSystem : MonoBehaviour
        
         return false;
     }
-   
+ 
 
    
     // Hàm kiểm tra tính hợp lệ của nước đi
