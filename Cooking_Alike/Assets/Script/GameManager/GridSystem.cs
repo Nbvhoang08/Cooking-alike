@@ -20,10 +20,13 @@ public class GridSystem : MonoBehaviour
     [Header("UI Elements")]
     public TextMeshPro timerText;
     public TextMeshPro scoreText;
+    public TextMeshPro highScoreText;
 
     [Header("Game Settings")]
     public float gameDuration = 180f;
-
+    private string currentSceneKey;
+    public int difficulty;
+    public bool hasObstacle;
     // Quản lý trạng thái game
     private float currentTime;
     private bool isGameRunning = false;
@@ -40,10 +43,28 @@ public class GridSystem : MonoBehaviour
     [SerializeField] private LineRenderer lineRenderer;
     public GameObject matchEffectPrefab;  // Hiệu ứng khi match thành công
     public GameObject missMatchEffectPrefab;  // Hiệu ứng khi không match
-    void Start()
+    public GameObject celebrationEffectPrefab;
+    private void Awake()
     {
         InitializeGrid();
+    }
+    void Start()
+    {
+        if (hasObstacle)
+        {
+            CreateMapObstacles(difficulty);
+        }
+        
         StartGame();
+        score = 0;
+        if (scoreText != null)
+        {
+            scoreText.text = score.ToString();
+        }
+        if (highScoreText != null)
+        {
+            highScoreText.text = LoadHighScore().ToString();
+        }
     }
 
     // Khởi tạo grid với offset tuỳ chỉnh
@@ -86,6 +107,24 @@ public class GridSystem : MonoBehaviour
         }
     }
 
+
+    public void SaveHighScore(int score)
+    {
+        // Kiểm tra nếu điểm mới cao hơn điểm đã lưu
+        int currentHighScore = PlayerPrefs.GetInt(currentSceneKey, 0);
+        if (score > currentHighScore)
+        {
+            PlayerPrefs.SetInt(currentSceneKey, score);
+            PlayerPrefs.Save();
+            Debug.Log($"New high score for {currentSceneKey}: {score}");
+        }
+    }
+    public int LoadHighScore()
+    {
+        int highScore = PlayerPrefs.GetInt(currentSceneKey, 0);
+        Debug.Log($"High score for {currentSceneKey}: {highScore}");
+        return highScore;
+    }
     void HandleCharacterSelection()
     {
         if (Input.GetMouseButtonDown(0))
@@ -149,34 +188,30 @@ public class GridSystem : MonoBehaviour
             firstSelectedPosition = selectedPosition;
             isFirstCharacterSelected = true;
 
-            HighlightCharacter(firstSelectedCharacter, true);
+            HighlightCharacter(firstSelectedCharacter, true,11);
         }
         else
         {
-            HighlightCharacter(selectedCharacter, true);
+            HighlightCharacter(selectedCharacter, true,12);
            
             if (CanMatchCharacters(firstSelectedPosition, selectedPosition))
             {
                 // Vẽ đường đi giữa hai điểm
                 DrawConnectionPath(firstSelectedPosition, selectedPosition);
-                 Vector2 startPosition = gridPositions[firstSelectedPosition.y, firstSelectedPosition.x];
-                Instantiate(matchEffectPrefab, startPosition, Quaternion.identity);
-
-                // Spawn hiệu ứng match ở điểm kết thúc
-                Vector2 endPosition = gridPositions[selectedPosition.y,selectedPosition.x];
-                Instantiate(matchEffectPrefab, endPosition, Quaternion.identity);
                 StartCoroutine(DestroyMatchedObjectsAfterDelay(
                     firstSelectedPosition, 
                     selectedPosition
                 ));
-                UpdateScore();
+               
             }
             else
             {
-                HighlightCharacter(firstSelectedCharacter, false);
+                HighlightCharacter(firstSelectedCharacter, false,10);
+                HighlightCharacter(selectedCharacter, false, 10);
                 Vector2 endPosition = gridPositions[selectedPosition.y, selectedPosition.x];
                 Instantiate(missMatchEffectPrefab, endPosition, Quaternion.identity);
                 lineRenderer.positionCount = 0;
+                UpdateScore(false);
             }
 
             firstSelectedCharacter = null;
@@ -203,8 +238,8 @@ public class GridSystem : MonoBehaviour
 
         // So sánh loại (enum)
         if (data1.TypeID != data2.TypeID){
-            HighlightCharacter(obj1, false);
-            HighlightCharacter(obj2,false);
+            HighlightCharacter(obj1, false,1);
+            HighlightCharacter(obj2,false,2);
             return false;
         }
         // Kiểm tra đường kết nối
@@ -217,19 +252,16 @@ public class GridSystem : MonoBehaviour
         // Đợi 0.3 giây
         yield return new WaitForSeconds(0.3f);
 
-        // Đợi 0.3 giây
-        yield return new WaitForSeconds(0.3f);
-
-    // Xóa sạch LineRenderer
+        // Xóa LineRenderer để dọn đường đi
         lineRenderer.positionCount = 0;
 
+        // Lấy các GameObject cần phá hủy
+        GameObject obj1 = gridItems[pos1.y, pos1.x];
+        GameObject obj2 = gridItems[pos2.y, pos2.x];
 
-        // Spawn hiệu ứng match ở điểm bắt đầu
-       
-
-        // Phá hủy game object
-        Destroy(gridItems[pos1.y, pos1.x]);
-        Destroy(gridItems[pos2.y, pos2.x]);
+        // Hiệu ứng thu nhỏ dần
+        yield return StartCoroutine(ShrinkAndDestroy(obj1));
+        yield return StartCoroutine(ShrinkAndDestroy(obj2));
 
         // Đánh dấu ô trống trong grid
         gridItems[pos1.y, pos1.x] = null;
@@ -238,21 +270,53 @@ public class GridSystem : MonoBehaviour
         // Kiểm tra kết thúc game nếu không còn character
         CheckGameCompletion();
     }
-   
-    
-    
+
+    // Hiệu ứng thu nhỏ và phá hủy
+    IEnumerator ShrinkAndDestroy(GameObject obj)
+    {
+        if (obj == null) yield break;
+
+        // Thời gian thu nhỏ
+        float shrinkDuration = 0.3f;
+
+        // Bắt đầu thu nhỏ
+        Vector3 initialScale = obj.transform.localScale;
+        float elapsedTime = 0f;
+
+        while (elapsedTime < shrinkDuration)
+        {
+            elapsedTime += Time.deltaTime;
+            float progress = elapsedTime / shrinkDuration;
+
+            // Giảm kích thước dần dần
+            obj.transform.localScale = Vector3.Lerp(initialScale, Vector3.zero, progress);
+
+            yield return null; // Chờ frame tiếp theo
+        }
+
+        // Đặt kích thước về 0 để đảm bảo
+        obj.transform.localScale = Vector3.zero;
+        Vector2 startPosition = new Vector2(obj.transform.position.x, obj.transform.position.y);
+        Instantiate(matchEffectPrefab, startPosition, Quaternion.identity);
+        UpdateScore(true);
+        // Phá hủy object
+        Destroy(obj);
+    }
+
 
     // Highlight character khi được chọn
-    void HighlightCharacter(GameObject character, bool isHighlighted)
+    void HighlightCharacter(GameObject character, bool isHighlighted , int amount)
     {
         // Thay đổi màu sắc hoặc scale để highlight
         if (isHighlighted)
         {
             character.transform.localScale = Vector3.one * 1.2f;
+            character.GetComponent<SpriteRenderer>().sortingOrder = amount ;
         }
         else
         {
             character.transform.localScale = Vector3.one;
+            character.GetComponent<SpriteRenderer>().sortingOrder = 10;
         }
     }
 
@@ -267,14 +331,7 @@ public class GridSystem : MonoBehaviour
         GenerateRandomMap(1);
     }
     // Cập nhật điểm số
-    void UpdateScore()
-    {
-        score += 10;
-        if (scoreText != null)
-        {
-            scoreText.text = "Score: " + score;
-        }
-    }
+  
 
     // Kiểm tra kết thúc game
     void CheckGameCompletion()
@@ -320,6 +377,22 @@ public class GridSystem : MonoBehaviour
             timerText.text = string.Format("{0:00}:{1:00}", minutes, seconds);
         }
     }
+    void UpdateScore(bool increase)
+    {
+        if (increase)
+        {
+            score += 50;
+        }
+        else
+        {
+            score -= 50;
+        }
+
+        if (scoreText != null)
+        {
+            scoreText.text = score.ToString();
+        }
+    }
 
     // Kết thúc game
     private void EndGame(bool isWin)
@@ -330,6 +403,8 @@ public class GridSystem : MonoBehaviour
         {
             Debug.Log("Chiến thắng!");
             // Xử lý khi thắng game
+            
+            StartCoroutine(CalculateFinalScoreAndCelebrate(currentTime));
         }
         else
         {
@@ -337,9 +412,71 @@ public class GridSystem : MonoBehaviour
             // Xử lý khi thua game
         }
     }
+    private IEnumerator CalculateFinalScoreAndCelebrate(float timeRemaining)
+    {
+        // Tính hệ số nhân điểm dựa trên thời gian còn lại
+        float multiplier = 1.0f;
+        if (timeRemaining >= 60f && timeRemaining <= 90f) // 1 đến 1.5 phút
+        {
+            multiplier = 1.5f;
+        }
+        else if (timeRemaining > 90f) // Trên 1.5 phút
+        {
+            multiplier = timeRemaining / 60f; // Chuyển thành phút
+        }
 
+        // Tính toán số điểm mục tiêu
+        int finalScore = Mathf.RoundToInt(score * multiplier);
+        int startScore = score;
+
+        // Hiển thị số điểm tăng dần
+        float duration = 1.5f; // Thời gian tăng dần điểm
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            score = Mathf.RoundToInt(Mathf.Lerp(startScore, finalScore, elapsed / duration));
+            if (scoreText != null)
+            {
+                scoreText.text = score.ToString();
+            }
+            yield return null; // Chờ frame tiếp theo
+        }
+
+        // Đảm bảo hiển thị chính xác điểm cuối cùng
+        score = finalScore;
+        if (scoreText != null)
+        {
+            scoreText.text = score.ToString();
+        }
+        SaveHighScore(score);
+        // Gọi hàm spawn hiệu ứng ăn mừng
+        SpawnCelebrationEffects(10);
+    }
+
+
+    private void SpawnCelebrationEffects(int effectCount)
+    {
+        for (int i = 0; i < effectCount; i++)
+        {
+            // Tạo vị trí ngẫu nhiên trên màn hình
+            Vector2 randomPosition = new Vector2(
+                Random.Range(0.1f, 0.9f) * Screen.width, // Đảm bảo không sát mép
+                Random.Range(0.1f, 0.9f) * Screen.height
+            );
+
+            // Chuyển đổi tọa độ màn hình thành tọa độ thế giới
+            Vector3 worldPosition = Camera.main.ScreenToWorldPoint(new Vector3(randomPosition.x, randomPosition.y, 10f));
+
+            // Instantiate hiệu ứng (thay `celebrationEffectPrefab` bằng prefab hiệu ứng của bạn)
+            GameObject effect = Instantiate(celebrationEffectPrefab, worldPosition, Quaternion.identity);
+
+            // Xóa hiệu ứng sau 2 giây để tránh tràn bộ nhớ
+           /* Destroy(effect, 2f);*/
+        }
+    }
     // Thuật toán tạo map với các hình dạng grid linh hoạt
-    
+
     // Sinh map với hỗ trợ offset
     public void GenerateRandomMap(int difficulty)
     {
